@@ -1,0 +1,15 @@
+# Game binaries (Sports Interactive's copyright) and patched copies
+original/
+patched/
+*.exe
+
+# Ghidra analysis databases (contain the game binary)
+ghidra_project*/
+
+# Decompiled game code, assembly dumps, game data copies and run logs; keep only our write-ups
+reports/**
+!reports/
+!reports/*/
+!reports/*/README.md
+
+__pycache__/
