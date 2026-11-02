@@ -13,3 +13,6 @@ reports/**
 !reports/*/README.md
 
 __pycache__/
+
+# Launcher choice
+launcher_settings.json

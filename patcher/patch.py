@@ -6,6 +6,10 @@ Usage:
 Every patch's original bytes are checked before anything is written, so a different
 game version fails loudly instead of being corrupted. Patches that touch the same bytes
 are refused.
+
+Each patch has either a file "offset" or, for code caves past the end of .text's raw data
+(VA 0x020c1600-0x020c1fff, zero-filled only in memory), a virtual address "va". The latter can
+only be applied by the in-memory loader.
 """
 
 import hashlib
@@ -44,6 +48,151 @@ DEFAULT = [
     "transfer_notice_14_days",
     "ai_approach_anyone",
 ]
+
+# The pre-Bosman rule set: clubs own players' registrations, at most 3 foreigners per squad.
+NOSTALGIA = [
+    "always_open_windows",  # before 2002 there were no transfer windows
+    # Release clauses stay as in FM: they existed pre-Bosman (mandatory in Spain since 1985).
+    # nostalgia_no_release_clauses removes them, if wanted.
+    # Compensation is due for out-of-contract moves at any age and to any country. Pre-contracts
+    # stay allowed, as before 1995, when the new club still paid a fee;
+    # nostalgia_no_pre_contracts blocks them, if wanted.
+    "nostalgia_compensation_any_age",
+    # Belgian-style retention: a contract the club doesn't release rolls over a year on the same
+    # terms, so an unsold player stays (pre-contracts still allowed, but cost compensation)
+    "nostalgia_retain_on_expiry",
+    # At most 3 foreigners in the match squad, stored as each competition's own rule (so FM's
+    # foreign-limited AI mode switches on natively), and shown on the rules screen.
+    "nostalgia_3_foreigners",
+    "nostalgia_3_foreigners_ui",
+    # AI clubs list their senior (21+) foreigners outside their best 3 by ability for sale and loan,
+    # then settle them (20-75% of remaining wages); and only pursue foreign targets with fewer than
+    # 3 senior foreigners or none signed in the last 365 days, and only if the target beats the
+    # club's 3rd-best senior foreigner. Until 1 Sep 2014 releasing foreigners is free and AI clubs
+    # release unsold surplus foreigners in late August (reports/foreign_cap, transfer_ai).
+    "nostalgia_foreign_cap_ai",
+    # listed Not Needed players are left out of the AI depth chart, so their places become needs
+    "nostalgia_ai_plan_without_surplus",
+]
+
+# Competitive parity: the labour-rights rules plus redistribution. These byte patches cover the
+# simple rules; the loader also runs tools/parity_agent.js for the pools and levies
+# (reports/parity/PLAN.md).
+PARITY = DEFAULT + [
+    "parity_no_dividends",
+    "parity_no_parachutes",
+    "parity_cup_gates_50_50",
+    # virtual players (FM's stand-ins for clubs without real squads) are rated as for a loaded
+    # league everywhere, so an unloaded minnow is weak (reports/parity/virtual_players_fix.md)
+    "parity_virtual_players_loaded_strength",
+]
+
+# Rule sets offered by tools/launcher.pyw and fm15_loader.py --mode.
+MODES = {
+    "vanilla": [],
+    "labour": DEFAULT,
+    "nostalgia": NOSTALGIA,
+    "parity": PARITY,
+}
+
+# Frida agents (in tools/) that fm15_loader.py also runs, eternalized, for a mode. squad_strip.js
+# removes the football-only squad rules that DEFAULT switches off from the competitions' stored
+# rules, so the rules screen and the AI stop seeing them too (reports/squad/strip_rules.md).
+MODE_AGENTS = {
+    "labour": ["squad_strip.js"],
+    "parity": ["squad_strip.js", "parity_agent.js", "parity_continental.js", "parity_playoff.js"],
+}
+
+# Rule groups for a custom rule set (launcher "Custom", fm15_loader.py --custom windows,fees).
+# "needs" are switched on with the group; "clashes" can't be combined with it. No two groups patch
+# the same bytes (the loader checks that too).
+CUSTOM = {
+    "windows": {
+        "label": "No transfer windows",
+        "text": "Players can move at any time of year.",
+        "patches": ["always_open_windows"],
+    },
+    "fees": {
+        "label": "No transfer fees",
+        "text": "No fees, instalments, add-ons or compensation. The AI treats every player as free to sign.",
+        "patches": ["no_transfer_fees", "ai_fee_free_targets"],
+    },
+    "loans": {
+        "label": "No loans",
+        "text": "Loans are abolished.",
+        "patches": ["no_loans"],
+    },
+    "notice": {
+        "label": "Two weeks' notice",
+        "text": "Clubs accept every offer and the player decides; a move completes 14 days after it's "
+                "agreed; releasing a player costs at most two weeks' wages. AI clubs approach anyone.",
+        "patches": ["notice_club_side", "notice_mutual_termination", "notice_player_side",
+                    "transfer_notice_14_days", "ai_approach_anyone"],
+        # with fees, a club that must accept every offer could be bought for a token fee
+        "needs": ["fees"],
+    },
+    "quotas": {
+        "label": "No football-only squad quotas",
+        "text": "Homegrown, nationality and non-EU squad quotas and the squad size cap are switched off "
+                "(work permits and Italy's visa quota stay). With 3 foreign players, nationality "
+                "quotas stay on.",
+        "patches": ["squad_rules_core", "no_homegrown_quota", "no_nationality_quota", "no_non_eu_limit",
+                    "no_squad_size_cap", "squad_rules_counters"],
+        "agents": ["squad_strip.js"],
+    },
+    "prebosman": {
+        "label": "Pre-Bosman contracts",
+        "text": "A contract the club doesn't release rolls over a year on the same terms, and moving at "
+                "the end of a contract costs compensation at any age.",
+        "patches": ["nostalgia_compensation_any_age", "nostalgia_retain_on_expiry"],
+        # both zero the compensation these rules rely on
+        "clashes": ["fees", "notice"],
+    },
+    "foreign3": {
+        "label": "3 foreign players",
+        "text": "At most 3 foreigners in a match squad in every league. AI clubs sell the foreigners "
+                "they can't use.",
+        "patches": ["nostalgia_3_foreigners", "nostalgia_3_foreigners_ui", "nostalgia_foreign_cap_ai",
+                    "nostalgia_ai_plan_without_surplus"],
+    },
+    "redistribution": {
+        "label": "Redistribution",
+        "text": "Pooled league TV, shared gates, levies on big commercial earners and owner money, wage "
+                "budgets that follow revenue, no dividends or parachutes, one-match national cup ties "
+                "with gates split 50/50.",
+        "patches": ["parity_no_dividends", "parity_no_parachutes", "parity_cup_gates_50_50"],
+        "agents": ["parity_agent.js"],
+    },
+    "continental": {
+        "label": "Knockout continental cups",
+        "text": "One knockout stage: champions and cup winners in the primary cup, the next two clubs "
+                "per nation in the secondary cup. Prize money shared, with solidarity to every nation.",
+        "patches": ["parity_virtual_players_loaded_strength"],
+        "agents": ["parity_continental.js", "parity_playoff.js"],
+    },
+}
+# The 3-foreigner rule is FM rule type 0x04, one of the nationality quotas, so no_nationality_quota
+# would switch it off and squad_strip.js (which strips what the quota patches switch off) remove it.
+CUSTOM_DROPS = {("quotas", "foreign3"): ["no_nationality_quota"]}
+
+
+def custom_set(keys):
+    """Patch names and agents for a list of CUSTOM keys, with needs added; raises on clashes."""
+    keys = list(dict.fromkeys(keys))
+    for key in keys:
+        if key not in CUSTOM:
+            raise ValueError(f"unknown rule group {key!r} (choose from {', '.join(CUSTOM)})")
+        keys += [k for k in CUSTOM[key].get("needs", []) if k not in keys]
+    for key in keys:
+        bad = [k for k in CUSTOM[key].get("clashes", []) if k in keys]
+        if bad:
+            raise ValueError(f"{CUSTOM[key]['label']} can't be combined with "
+                             f"{', '.join(CUSTOM[k]['label'] for k in bad)}")
+    drop = {n for pair, names in CUSTOM_DROPS.items() if set(pair) <= set(keys) for n in names}
+    order = [k for k in CUSTOM if k in keys]
+    names = [n for k in order for n in CUSTOM[k]["patches"] if n not in drop]
+    agents = [a for k in order for a in CUSTOM[k].get("agents", [])]
+    return names, agents
 
 
 def parse(hex_bytes):
@@ -106,6 +255,12 @@ def main(argv):
     unknown = [n for n in names if n not in PATCHES]
     if unknown:
         print(f"Unknown patches: {', '.join(unknown)}. Available: {', '.join(PATCHES)}")
+        return 1
+    # Patches with a "va" instead of an "offset" live past .text's raw data (code caves that are
+    # only zero-filled in memory), so only tools/fm15_loader.py can apply them.
+    memory_only = sorted({n for n in names for p in PATCHES[n] if "offset" not in p})
+    if memory_only:
+        print(f"{', '.join(memory_only)} can only be applied in memory (tools/fm15_loader.py)")
         return 1
 
     claimed = {}

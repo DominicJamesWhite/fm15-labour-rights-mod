@@ -1,0 +1,71 @@
+{
+  "_comment": "Test-career setups for fm15_cli.py harness. Nation entries are FM's 3-letter codes, optionally CODE-n where n is the 0-based index of the lowest active division (same numbers FM writes in last_normal_nations.xml); a bare code loads every division. 'team' is a club's database unique id, or -1 to start unemployed (unverified). Dates are YYYY-MM-DD and are written in FM's date order from date_format.xml.",
+  "eng-fra": {
+    "description": "England and France playable, the user's other usual nations view-only",
+    "database": null,
+    "mode": "parity",
+    "playable": [
+      "ENG-1",
+      "FRA-1"
+    ],
+    "view_only": [
+      "GER-1",
+      "ITA-1",
+      "NED-1",
+      "POR-1",
+      "SCO-3",
+      "ESP-1"
+    ],
+    "size": "MINIMUM",
+    "managers": [
+      {
+        "first": "Test",
+        "last": "Manager",
+        "team": -1
+      }
+    ],
+    "holiday": true,
+    "save_dates": [
+      "2015-06-01"
+    ],
+    "auto_save": null,
+    "quit_when_done": true
+  },
+  "smoke-holiday": {
+    "description": "Harness test: England only, smallest database, an unemployed manager on holiday, save on 1 Aug 2014 and quit",
+    "mode": "vanilla",
+    "playable": [
+      "ENG-1"
+    ],
+    "size": "MINIMUM",
+    "managers": [
+      {
+        "first": "Test",
+        "last": "Manager",
+        "team": -1
+      }
+    ],
+    "holiday": true,
+    "save_dates": [
+      "2014-08-01"
+    ],
+    "quit_when_done": true
+  },
+  "test-holiday": {
+    "description": "Harness test: England only, smallest database, an unemployed manager on holiday; stop with `holiday --until`",
+    "mode": "vanilla",
+    "playable": [
+      "ENG-1"
+    ],
+    "size": "MINIMUM",
+    "managers": [
+      {
+        "first": "Test",
+        "last": "Manager",
+        "team": -1
+      }
+    ],
+    "holiday": true,
+    "auto_save": "WEEK"
+  }
+}

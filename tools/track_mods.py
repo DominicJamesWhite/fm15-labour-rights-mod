@@ -2,6 +2,10 @@
 its job. Writes a readable report every 15 seconds.
 
 Usage: python track_mods.py [minutes, default 20] [report file, default reports/tracker/latest.txt]
+                            [mode, default labour; see patch.py MODES]
+
+The behaviour checks in track_mods.js are for the labour-rights rules; in other modes only the
+integrity checks (patches still in memory) apply.
 """
 
 import importlib.util
@@ -46,19 +50,25 @@ def render(stats):
 def main(argv):
     minutes = float(argv[1]) if len(argv) > 1 else 20
     out = pathlib.Path(argv[2]) if len(argv) > 2 else ROOT / "reports" / "tracker" / "latest.txt"
+    mode = argv[3] if len(argv) > 3 else "labour"
     out.parent.mkdir(parents=True, exist_ok=True)
 
     loader = load_module(ROOT / "tools" / "fm15_loader.py")
     patcher = load_module(ROOT / "patcher" / "patch.py")
-    runtime_writes = {}
+    runtime_writes, writable = {}, {}
     for path in sorted((ROOT / "patcher").glob("patches*.py")):
-        runtime_writes.update(getattr(load_module(path), "RUNTIME_WRITES", {}))
+        module = load_module(path)
+        runtime_writes.update(getattr(module, "RUNTIME_WRITES", {}))
+        writable.update(getattr(module, "WRITABLE", {}))
     to_va = loader.section_map(loader.ORIGINAL.read_bytes())
     patches, writes = [], []
-    for name in patcher.DEFAULT:
+    for name in patcher.MODES[mode]:
+        slots = {va for va, _ in writable.get(name, [])}
         for p in patcher.PATCHES[name]:
             data = bytes.fromhex(p["patched"].replace(" ", ""))
-            patches.append({"name": name, "va": to_va(p["offset"]), "len": len(data), "patched": data.hex(" ")})
+            if p.get("va") in slots:
+                continue    # pointer slot of a loader-allocated block: non-zero once the loader ran
+            patches.append({"name": name, "va": p["va"] if "va" in p else to_va(p["offset"]), "len": len(data), "patched": data.hex(" ")})
         for addr, data in runtime_writes.get(name, []):
             raw = bytes.fromhex(data.replace(" ", ""))
             writes.append({"name": name, "va": addr, "len": len(raw), "bytes": raw.hex(" ")})
