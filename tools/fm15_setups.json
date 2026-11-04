@@ -67,5 +67,26 @@
     ],
     "holiday": true,
     "auto_save": "WEEK"
+  },
+  "big5": {
+    "description": "Parity test: top two divisions of England, Spain, Germany, Italy and France; an unemployed manager on holiday",
+    "mode": "parity",
+    "playable": [
+      "ENG-1",
+      "ESP-1",
+      "GER-1",
+      "ITA-1",
+      "FRA-1"
+    ],
+    "size": "MINIMUM",
+    "managers": [
+      {
+        "first": "Parity",
+        "last": "Observer",
+        "team": -1
+      }
+    ],
+    "holiday": true,
+    "auto_save": "MONTH"
   }
 }

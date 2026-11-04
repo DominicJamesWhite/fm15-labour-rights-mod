@@ -3,6 +3,7 @@
 Usage:
     python fm15_cli.py new-career --setup NAME [--until YYYY-MM-DD] [--mode MODE | --custom GROUPS]
                                   [--keep-running] [--timeout SECONDS]
+    python fm15_cli.py load --save NAME (--mode MODE | --custom GROUPS) [--force] [--holiday]
     python fm15_cli.py harness --setup NAME [--until YYYY-MM-DD] [--out FILE] [--prefs-out DIR]
     python fm15_cli.py prefs backup
     python fm15_cli.py prefs restore [BACKUP] [--apply]
@@ -81,6 +82,21 @@ HARNESS_NAME = "fm15cli"           # FM opens <application_root>\<value>.cfg (0x
 LOADER = ROOT / "tools" / "fm15_loader.py"
 STOP_AGENT = ROOT / "tools" / "holiday_stop.js"
 PENDING_RESTORE = ROOT / "reports" / "automation" / "pending_restore.txt"   # backup to restore once FM quits
+CAREER_RULES = ROOT / "reports" / "automation" / "career_rules.txt"   # rules of the running career, for save names
+
+
+def rules_args(mode, custom):
+    """Loader arguments and the label saves are tagged with: [parity], [custom fees+foreign3]."""
+    if custom:
+        groups = sorted(k for k in custom.split(",") if k)
+        return ["--custom", ",".join(groups)], "custom " + "+".join(groups)
+    return ["--mode", mode], mode
+
+
+def save_tag(path):
+    """The rules label in a save's name ('big5 [parity] 2016-07-01.fm' -> 'parity'), or None."""
+    m = re.search(r"\[([^\]]+)\]", pathlib.Path(path).stem)
+    return m.group(1) if m else None
 DOCS = pathlib.Path(os.environ.get("USERPROFILE", "")) / "Documents" / "Sports Interactive" / "Football Manager 2015"
 
 
@@ -239,7 +255,8 @@ def cmd_new_career(opts):
 
     mark = time.time()
     nav_start = NAVIGATION.stat().st_size if NAVIGATION.exists() else 0
-    mode = opts.custom and ["--custom", opts.custom] or ["--mode", opts.mode or setup.get("mode") or "vanilla"]
+    mode, label = rules_args(opts.mode or setup.get("mode") or "vanilla", opts.custom)
+    CAREER_RULES.write_text(label, "utf-8")
     gate = [] if mode == ["--mode", "vanilla"] else ["--gate"]
     print("launching:", " ".join(mode + gate), flush=True)
     r = subprocess.run([sys.executable, str(LOADER)] + mode + gate, cwd=ROOT)
@@ -317,7 +334,8 @@ def cmd_holiday(opts):
     else:
         print("timeout; FM left running")
         return 1
-    name = games / f"{opts.name or 'cli'} {target}.fm"
+    label = CAREER_RULES.read_text("utf-8").strip() if CAREER_RULES.exists() else "rules unknown"
+    name = games / f"{opts.name or 'cli'} [{label}] {target}.fm"
     shutil.copy2(f, name)
     print(f"autosave {f.name} at game date {api.date()} copied to {name}", flush=True)
     if not opts.quit:
@@ -338,6 +356,87 @@ def cmd_holiday(opts):
         backup = PENDING_RESTORE.read_text("utf-8").strip()
         if cmd_restore(argparse.Namespace(backup=backup, apply=True)) == 0:
             PENDING_RESTORE.unlink()
+    return 0
+
+
+def cmd_load(opts):
+    """Start FM and load a save with no clicks: FM's own start-up load (the load_game preference, read at
+    every main-menu init by 0x00e46580), held by the gate until the mode's rules are in; then switch the
+    preference off and, with --holiday, send the manager on holiday (new_career.md, Load)."""
+    import time
+    import frida
+    save = pathlib.Path(opts.save)
+    if not save.is_absolute():
+        save = DOCS / "games" / (opts.save if opts.save.lower().endswith(".fm") else opts.save + ".fm")
+    if not save.exists():
+        print(f"no save {save}")
+        return 1
+    tag, wanted = save_tag(save), rules_args(opts.mode, opts.custom)[1]
+    if tag != wanted and not opts.force:
+        print(f"the save is tagged [{tag or 'no rules'}], not [{wanted}]; a career should keep its rules "
+              f"(pass --force to load it anyway)")
+        return 1
+    running = fm_processes()
+    if running is None or running:
+        print("fm.exe is running (or could not be checked); quit it first")
+        return 1
+    cmd_backup(opts)
+    backup = sorted(p for p in BACKUPS.iterdir() if p.is_dir())[-1]
+    load_pref = PREFS / "load_game.xml"
+    for f in (PREFS / "auto_play_game_file.xml",):
+        if f.exists():
+            f.unlink()
+    load_pref.write_bytes(pref_xml("string", str(save)).encode("utf-16"))
+    PENDING_RESTORE.write_text(backup.name, "utf-8")
+    print(f"start-up load of {save} switched on", flush=True)
+    nav_start = NAVIGATION.stat().st_size if NAVIGATION.exists() else 0
+    mode, label = rules_args(opts.mode, opts.custom)
+    CAREER_RULES.write_text(label, "utf-8")
+    gate = [] if mode == ["--mode", "vanilla"] else ["--gate"]
+    print("launching:", " ".join(mode + gate), flush=True)
+    r = subprocess.run([sys.executable, str(LOADER)] + mode + gate, cwd=ROOT)
+    if r.returncode:
+        load_pref.unlink(missing_ok=True)
+        print("the loader failed; start-up load switched off (quit FM, then `prefs restore --apply`)")
+        return 1
+    deadline = time.time() + opts.timeout
+    screen = None
+    while time.time() < deadline:
+        time.sleep(5)
+        now = last_screen(nav_start)
+        if now != screen:
+            screen = now
+            print(f"  screen: {screen}", flush=True)
+        if screen and screen.startswith("Game:"):
+            break
+        running = fm_processes()
+        if running is not None and not running:
+            print("FM quit before the save loaded")
+            return 1
+    else:
+        load_pref.unlink(missing_ok=True)
+        print("timeout before the save loaded; start-up load switched off")
+        return 1
+    load_pref.unlink(missing_ok=True)       # FM reads it at every main-menu init and never clears it
+    print("save loaded", flush=True)
+    if not opts.holiday:
+        return 0
+    session = frida.attach("fm.exe")
+    script = session.create_script(STOP_AGENT.read_text("utf-8"))
+    script.load()
+    api = script.exports_sync
+    while time.time() < deadline and (api.state()["pending"] or not api.state()["loaded"]):
+        time.sleep(2)
+    start = api.date()
+    time.sleep(20)
+    if api.date() != start:
+        print(f"already holidaying (game date {start} -> {api.date()})")
+    else:
+        api.go_holiday()
+        time.sleep(20)
+        print(f"holiday requested; game date {start} -> {api.date()}"
+              + ("" if api.date() != start else " (not moving: press Continue in FM)"))
+    session.detach()
     return 0
 
 
@@ -454,6 +553,15 @@ def main(argv):
     o.add_argument("--name", help="saved as games/<name> <date>.fm (default: cli)")
     o.add_argument("--timeout", type=int, default=7200)
     o.set_defaults(func=cmd_holiday)
+    lo = sub.add_parser("load", help="start FM and load a save with no clicks (FM's start-up load)")
+    lo.add_argument("--save", required=True, help="a save in the games folder (name or .fm), or a full path")
+    rules = lo.add_mutually_exclusive_group(required=True)
+    rules.add_argument("--mode", help="rule set: vanilla, labour, nostalgia, parity")
+    rules.add_argument("--custom", help="custom rule groups (fm15_loader.py --custom)")
+    lo.add_argument("--force", action="store_true", help="load even if the save's rules tag differs")
+    lo.add_argument("--holiday", action="store_true", help="send the manager on holiday if the game sits idle")
+    lo.add_argument("--timeout", type=int, default=900)
+    lo.set_defaults(func=cmd_load)
     h = sub.add_parser("harness", help="write the auto-setup file for a setup (dry run for preferences)")
     h.add_argument("--setup", required=True)
     h.add_argument("--until", help="YYYY-MM-DD: save on this date (replaces the setup's save_dates)")

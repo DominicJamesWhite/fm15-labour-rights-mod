@@ -1,4 +1,5 @@
-// Gate for auto-setup careers (tools/fm15_cli.py new-career, reports/automation/new_career.md).
+// Gate for auto-setup careers and start-up loads (tools/fm15_cli.py new-career / load,
+// reports/automation/new_career.md).
 // FM's auto-setup harness builds the career when the main menu is first created (0x00d31510, about
 // 30 s after start-up), which can come before fm15_loader.py has written the patches and loaded the
 // mode agents. Loaded with the checksum shield, this holds the main thread at the entry of 0x00d31510
@@ -18,6 +19,9 @@ void onEnter(GumInvocationContext *ic) {
 }
 `, { released, Sleep: Process.getModuleByName("kernel32.dll").getExportByName("Sleep") });
 Interceptor.attach(va(0x00d31510), cm);
+// The start-up load (the load_game preference, read by 0x00e46580 at the main menu's init just before the
+// harness) is held the same way, so a resumed career is loaded under the mode's rules (`fm15_cli.py load`).
+Interceptor.attach(va(0x00e46580), cm);
 
 rpc.exports = {
   release() {

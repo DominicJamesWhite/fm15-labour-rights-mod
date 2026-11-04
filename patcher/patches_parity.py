@@ -69,4 +69,20 @@ PATCHES = {
             "patched": "90 90",
         },
     ],
+    "parity_continental_ambition_any_tier": [
+        {
+            # FUN_00c1f960 is the weekly off-season check behind happiness reasons 0x2a6/0x2a7
+            # ("wants to leave to play in the Champions League / continental football"), for
+            # reputable players at top-division clubs. At 00c1fb5b the club's own continental comp
+            # (the higher-reputation of team+0x50 and [team+0x54]+0x7c, only reached when one is
+            # set) must rank at least as high as the nation's main cup, so the Europa League didn't
+            # count. With knockout cups only two clubs per nation reach the primary cup, so any
+            # continental comp now suffices: only clubs in neither tier fire the reason.
+            # See reports/parity/cl_unhappiness.md.
+            #   jge 00c1fbd4 -> jmp 00c1fbd4
+            "offset": 0x81FB5B,
+            "original": "7d",
+            "patched": "eb",
+        },
+    ],
 }

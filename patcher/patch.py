@@ -85,6 +85,9 @@ PARITY = DEFAULT + [
     # virtual players (FM's stand-ins for clubs without real squads) are rated as for a loaded
     # league everywhere, so an unloaded minnow is weak (reports/parity/virtual_players_fix.md)
     "parity_virtual_players_loaded_strength",
+    # players only want to leave for continental football if the club is in neither the primary
+    # nor the secondary cup (reports/parity/cl_unhappiness.md)
+    "parity_continental_ambition_any_tier",
 ]
 
 # Rule sets offered by tools/launcher.pyw and fm15_loader.py --mode.
@@ -166,8 +169,9 @@ CUSTOM = {
     "continental": {
         "label": "Knockout continental cups",
         "text": "One knockout stage: champions and cup winners in the primary cup, the next two clubs "
-                "per nation in the secondary cup. Prize money shared, with solidarity to every nation.",
-        "patches": ["parity_virtual_players_loaded_strength"],
+                "per nation in the secondary cup. Prize money shared, with solidarity to every nation. "
+                "Players only want to leave for continental football if the club is in neither cup.",
+        "patches": ["parity_virtual_players_loaded_strength", "parity_continental_ambition_any_tier"],
         "agents": ["parity_continental.js", "parity_playoff.js"],
     },
 }
